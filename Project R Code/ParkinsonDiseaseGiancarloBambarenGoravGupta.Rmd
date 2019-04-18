@@ -1,0 +1,196 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+#Loading our parkinson dataset 
+data = read.csv("parkinson_data.csv")
+head(data)
+```
+
+```{r}
+sapply(data, class)
+patientData = data[,-c(1,4,5)]
+head(patientData)
+```
+
+```{r}
+#Turning sex into a factor
+patientData$sex = factor(patientData$sex)
+class(patientData$sex)
+```
+
+```{r}
+#Splitting data into training and testing sets
+n = nrow(patientData)
+trainIndex = sample(1:n, 0.80*n)
+trainSet = patientData[trainIndex,]
+testSet = patientData[-trainIndex,]
+nrow(trainSet)
+nrow(testSet)
+```
+
+```{r}
+#Fitting our training set with all attributes onto a linear model
+lmAllAttributes = lm(total_UPDRS~., data = trainSet)
+summary(lmAllAttributes)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(lmAllAttributes)
+```
+
+```{r}
+library(car)
+```
+
+```{r}
+#Testing for collinearity
+vif(lmAllAttributes)
+```
+
+```{r}
+lmNew = lm(total_UPDRS~ age + sex + Jitter.Abs. + Shimmer.APQ11 + HNR + RPDE + DFA + PPE, data = trainSet)
+summary(lmNew)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(lmAllAttributes)
+```
+
+```{r}
+shapiro.test(residuals(lmNew))
+```
+
+```{r}
+vif(lmNew)
+```
+
+```{r}
+lmPredict = predict(lmNew, newdata = testSet)
+mean((lmPredict - testSet$total_UPDRS)^2)
+plot(lmPredict, testSet$total_UPDRS)
+```
+```{r}
+library(leaps)
+```
+
+```{r}
+bestSubset = regsubsets(total_UPDRS~., data = trainSet)
+summarySubset = summary(bestSubset)
+summarySubset
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(summarySubset$bic, type = "o", col = 4, xlab = "Number of Subsets", ylab = "BIC score")
+plot(summarySubset$rss, type = "o", col = 3, xlab = "Number of Subsets", ylab = "RSS score")
+plot(summarySubset$cp, type = "o", col = 2, xlab = "Number of Subsets", ylab = "CP score")
+plot(summarySubset$adjr2, type = "o", col = 1, xlab = "Number of Subsets", ylab = "Adjusted R^2 score")
+```
+
+```{r}
+lmLog = lm(log(total_UPDRS)~ age + sex + Jitter.Abs. + Shimmer.APQ11 + HNR + RPDE + DFA + PPE, data = trainSet)
+summary(lmLog)
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(lmLog)
+```
+
+```{r}
+lmLogPred = predict(lmLog, newdata = testSet)
+mean((lmLogPred - testSet$total_UPDRS)^2)
+```
+
+```{r}
+library(tree)
+tree_model = tree(total_UPDRS~., data = trainSet)
+plot(tree_model)
+text(tree_model)
+```
+
+```{r}
+tree_model
+```
+
+```{r}
+#Regular Tree Test MSE
+tree_model_predict = predict(tree_model,newdata = testSet)
+mean ((testSet$total_UPDRS - tree_model_predict)^2)
+```
+
+```{r}
+#Now find "best number of variants" to be used at each split based on deviance.
+treemodel_cv=cv.tree(tree_model, FUN = prune.tree)
+plot(treemodel_cv$size, treemodel_cv$dev, type = "b", ylab = "Deviance", xlab = "Tree size")
+```
+
+```{r}
+#As per above graph, at random covariant size of 20, which is all of our covariates in use, deviance is at the lowest value. We should now look to try the Random forest method, as there won't be any imporvement on this tree by pruning.
+```
+
+
+```{r}
+#We will use half of our covariates to build this model in order to avoid overfitting and help decorrelate the variables.
+library(randomForest)
+bag1 = randomForest(total_UPDRS~., data = trainSet, mtry=10, ntree=50)
+bag1
+```
+
+```{r}
+#Test MSE of bagged Random Forrest
+pred2=predict(bag1,newdata = testSet)
+mean((pred2 - testSet$total_UPDRS)^2)
+```
+
+```{r}
+varImpPlot(bag1)
+```
+
+```{r}
+plot(bag1)
+```
+
+```{r}
+bag2 = randomForest(total_UPDRS~., data = trainSet, mtry=10, ntree=1000)
+bag2
+```
+
+```{r}
+#Test MSE of bagged 1000 Random Forrest
+pred3=predict(bag2, newdata = testSet)
+mean((pred3 - testSet$total_UPDRS)^2)
+```
+
+```{r}
+library(gbm)
+```
+
+```{r}
+#We keep our interaction depth at the same number of covariates that we used in bagging
+boostModel = gbm(total_UPDRS~., data = trainSet, n.trees = 1000, interaction.depth = 10)
+boostModel
+```
+
+```{r}
+#Now we predict and achieve a test MSE for boosting
+boostPred = predict(boostModel, newdata = testSet, n.trees = 1000)
+mean((boostPred-testSet$total_UPDRS)^2)
+```
+
+```{r}
+#Introducing a shrinkage parameter to our boosted tree training
+boostModel2 = gbm(total_UPDRS~., data = trainSet, n.trees = 1000, interaction.depth = 10, shrinkage = 0.1)
+```
+
+```{r}
+boostPred2 = predict(boostModel2, newdata = testSet, n.trees = 1000)
+mean((boostPred2-testSet$total_UPDRS)^2)
+```
+
+
